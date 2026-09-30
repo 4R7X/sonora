@@ -7,7 +7,7 @@ use gpui::{App, Context, Entity};
 use music::{PinTarget, PinTargetKind};
 use ui::{Pin, PinKind};
 
-use crate::library::{Library, Shelf};
+use crate::library::{Library, LibraryEvent, Shelf};
 use crate::session::Session;
 use crate::settings::AppSettings;
 
@@ -80,6 +80,13 @@ impl Pins {
             }
         })
         .detach();
+        cx.subscribe(&library, |this, _, event, cx| {
+            let LibraryEvent::PlaylistGone(id) = event else {
+                return;
+            };
+            this.forget_playlist(id, cx);
+        })
+        .detach();
         cx.observe(&settings, |this, _, cx| this.changed(cx))
             .detach();
         cx.observe(&session, |this, _, cx| this.changed(cx))
@@ -139,6 +146,23 @@ impl Pins {
             }
         }
         hasher.finish()
+    }
+
+    /// The playlist is already gone on the provider, unpin without calling tell().
+    fn forget_playlist(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(pin) = self
+            .dragged(cx)
+            .into_iter()
+            .find(|pin| pin.kind == PinKind::Playlist && pin.id == id)
+        else {
+            return;
+        };
+        let Some(slug) = self.session.read(cx).slug_for(&pin.id) else {
+            return;
+        };
+        self.settings
+            .update(cx, |settings, cx| settings.unpin(slug, &pin, cx));
+        self.changed(cx);
     }
 
     /// Drops both laid-out lists so the next read rebuilds them.
